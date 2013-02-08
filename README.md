@@ -1,4 +1,4 @@
 aptivate-monkeypatch
 ====================
 
-Tools for monkeypatching Python apps
+Tools to monkeypatch - changing existing classes and modules in python.
