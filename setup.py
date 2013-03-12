@@ -5,7 +5,7 @@ Tools to monkeypatch - changing existing classes and modules in python.'''
 
 setup(
     author="Chris Wilson",
-    author_email="chrisw@aptivate.org",
+    author_email="chris-monkeypatch@aptivate.org",
     name='aptivate-monkeypatch',
     version='1.0',
     description='Monkeypatch tools',
