@@ -76,7 +76,31 @@ def get_decorator_or_context_object(class_or_instance, method_name,
     wrapper_function, which is to be decorated.
     """
 
-    original_function = getattr(class_or_instance, method_name)
+    # if original_function is a @cached_property, then trying to read it
+    # will result in a call to __get__ which will execute the function
+    # to cache the property, which is not what we want at all! To fix that,
+    # we check for things that look like @cached_property and patch their
+    # 'func' attribute instead
+
+    # http://gnosis.cx/publish/programming/metaclass_2.txt
+    def get_obj_mro(obj):
+        if isinstance(obj, type):
+            return obj.mro()
+        else:
+            return obj.__class__.mro()
+        
+    # http://stackoverflow.com/a/3681323/648162
+    def get_dict_attr(obj,attr):
+        for obj in [obj]+get_obj_mro(obj):
+            if attr in obj.__dict__:
+                return obj.__dict__[attr]
+        raise AttributeError
+
+    original_function = get_dict_attr(class_or_instance, method_name)
+    if 'func' in original_function.__dict__ and \
+        '__get__' in original_function.__dict__:
+        # looks like a @cached_property, so patch its 'func' instead
+        original_function = original_function.func 
     
     def raw_decorator(wrapper_function):
         if external_replacement_function is None:
@@ -238,7 +262,12 @@ def patch(class_or_instance, method_name, bare_replacement_function=None):
 
     def wrapper_with_patch(external_patch_function, original_function,
         *args, **kwargs):
+        """
+        external_patch_function is the supplied patch, which takes
+        original_function as its first argument.
+        """
         return external_patch_function(original_function, *args, **kwargs)
+    
     return get_decorator_or_context_object(class_or_instance, method_name,
         bare_replacement_function)(wrapper_with_patch)
 
