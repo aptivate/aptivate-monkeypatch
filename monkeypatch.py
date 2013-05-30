@@ -19,7 +19,7 @@ class TemporaryPatcher(object):
             self.original_function)
 
 def get_decorator_or_context_object(class_or_instance, method_name,
-    external_replacement_function=None):
+    wrapper_function, external_replacement_function=None):
     """
     This is really confusing, but helps reduce code duplication. You have
     been warned: be prepared for head-spinning.
@@ -39,15 +39,20 @@ def get_decorator_or_context_object(class_or_instance, method_name,
             monkeys++
     
     If external_replacement_function is provided, the monkeypatch helper is
-    being used as a procedure, to permanently replace a function or method
-    with a monkeypatched version that involves the external_replacement_function
-    in some way (before, after or around the original_function), or as a
-    context object for a "with" statement, which undoes the patching when
-    it finishes. We handle that by always returning a context object (a
-    TemporaryPatcher) and if it's discarded (procedural style) then the
-    patch is never undone and is permanent. In the context of a "with"
-    statement, the TemporaryPatcher's __exit__ method undoes the patch when
-    the statement exits.
+    being used as a procedure, in one of two ways:
+    
+    * to permanently replace a function or method with a monkeypatched
+      version that invokes the external_replacement_function in some way
+      (before, after or around the original_function);
+      
+    * or as a context object for a "with" statement, which undoes the
+      patching when it finishes.
+      
+    We handle that by always returning a context object (a TemporaryPatcher)
+    and if it's discarded (procedural style) then the patch is never undone
+    and is permanent. In the context of a "with" statement, the
+    TemporaryPatcher's __exit__ method is called by Python after the "with"
+    statement's block exits, and it undoes the patch.
     
     An example of procedural use: 
     
@@ -70,10 +75,6 @@ def get_decorator_or_context_object(class_or_instance, method_name,
     parameters, which go before the arguments that the original_function is
     called with, are: (1) the undecorated external_replacement_function; and
     (2) the original_function, that was replaced by the monkey patch.
-    
-    THIS method is only ever used as an argumented decorator, so always returns
-    a raw_decorator that takes only one argument, the monkeypatch helper's
-    wrapper_function, which is to be decorated.
     """
 
     # http://gnosis.cx/publish/programming/metaclass_2.txt
@@ -108,44 +109,41 @@ def get_decorator_or_context_object(class_or_instance, method_name,
         # looks like a @cached_property, so patch its 'func' instead
         original_function = original_function.func 
     
-    def raw_decorator(wrapper_function):
-        if external_replacement_function is None:
-            # The monkeypatch function (not this one) is being used as an
-            # unbound decorator. In this case, we don't actually know what
-            # external function we're wrapping until the decorator is called,
-            # after the monkeypatch function returns it.
-            # 
-            # So we (raw_decorator) return a function (the bound decorator),
-            # which takes the external replacement function as its only
-            # argument, and replaces the original with it, permanently.
-            #
-            # The monkeypatch function returns this bound decorator to its
-            # caller, where it's applied to the external replacement function.
+    if external_replacement_function is None:
+        # The monkeypatch function (not this one) is being used as an
+        # unbound decorator. In this case, we don't actually know what
+        # external function we're wrapping until the decorator is called,
+        # after the monkeypatch function returns it.
+        # 
+        # So we (raw_decorator) return a function (the bound decorator),
+        # which takes the external replacement function as its only
+        # argument, and replaces the original with it, permanently.
+        #
+        # The monkeypatch function returns this bound decorator to its
+        # caller, where it's applied to the external replacement function.
 
-            def final_decorator(external_replacement_function):
-                # Activate the patch now
-                actual_final_replacement = curry(wrapper_function,
-                    external_replacement_function, original_function)
-                setattr(class_or_instance, method_name, actual_final_replacement)
-                # It's not useful to return the same wrapper, because
-                # that would replace the external_replacement_function with
-                # a decorated version, which would stop it from being used
-                # to replace multiple methods. So we return the
-                # external_replacement_function as it originally was, leaving
-                # it unchanged in its definition.
-                return external_replacement_function
-           
-            return final_decorator
-        else:
-            # Being used as a context object or procedural call.
-            # The monkeypatch function returns this TemporaryPatcher to its
-            # caller, where it's used as a context object, or discarded.
-            # import pdb; pdb.set_trace()
-            return TemporaryPatcher(class_or_instance, method_name,
-                curry(wrapper_function, external_replacement_function,
-                    original_function))
-
-    return raw_decorator
+        def final_decorator(external_replacement_function):
+            # Activate the patch now
+            actual_final_replacement = curry(wrapper_function,
+                external_replacement_function, original_function)
+            setattr(class_or_instance, method_name, actual_final_replacement)
+            # It's not useful to return the same wrapper, because
+            # that would replace the external_replacement_function with
+            # a decorated version, which would stop it from being used
+            # to replace multiple methods. So we return the
+            # external_replacement_function as it originally was, leaving
+            # it unchanged in its definition.
+            return external_replacement_function
+       
+        return final_decorator
+    else:
+        # Being used as a context object or procedural call.
+        # The monkeypatch function returns this TemporaryPatcher to its
+        # caller, where it's used as a context object, or discarded.
+        # import pdb; pdb.set_trace()
+        return TemporaryPatcher(class_or_instance, method_name,
+            curry(wrapper_function, external_replacement_function,
+                original_function))
 
 def before(target_class_or_module, target_method_name):
     """
@@ -202,7 +200,7 @@ def after(class_or_instance, method_name, bare_replacement_function=None):
         external_after_function(*args, **kwargs)
         return result
     return get_decorator_or_context_object(class_or_instance, method_name,
-        bare_replacement_function)(wrapper_with_after)
+        wrapper_with_after, bare_replacement_function)
 
 from django.utils.functional import curry
 
@@ -275,7 +273,7 @@ def patch(class_or_instance, method_name, bare_replacement_function=None):
         return external_patch_function(original_function, *args, **kwargs)
     
     return get_decorator_or_context_object(class_or_instance, method_name,
-        bare_replacement_function)(wrapper_with_patch)
+        wrapper_with_patch, bare_replacement_function)
 
 def breakpoint(*args, **kwargs):
     import pdb; pdb.set_trace()
@@ -322,4 +320,4 @@ def modify_return_value(class_or_instance, method_name,
         result = external_modify_function(result, *args, **kwargs)
         return result
     return get_decorator_or_context_object(class_or_instance, method_name,
-        bare_replacement_function)(wrapper_with_modify)
+        wrapper_with_modify, bare_replacement_function)
