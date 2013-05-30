@@ -275,6 +275,76 @@ def patch(class_or_instance, method_name, bare_replacement_function=None):
     return get_decorator_or_context_object(class_or_instance, method_name,
         wrapper_with_patch, bare_replacement_function)
 
+def insert(class_or_instance, method_name, bare_inserted_function=None):
+    """
+    Insert a new method (or module-level function) into a class or module.
+    The inserted name must not already exist in the class or module.
+    
+    Example:
+    
+    Use as a simple function:
+    
+    def inserted_foo(bar, baz):
+        try:
+            return "hello %s" % bar
+        except Exception as e:
+            frob(e)
+    import my.module.name
+    insert(my.module.name, 'foo', inserted_foo)
+    
+    Use as a decorator:
+    
+    import my.module.name
+    @insert(my.module.name, 'foo')
+    def inserted_foo(bar, baz):
+        try:
+            return "hello %s" % bar
+        except Exception as e:
+            frob(e)
+            
+    Inserting methods works exactly the same as functions. Remember to include
+    the "self" argument first.
+    
+    from my.module.name import MyClass
+    @insert(MyClass, 'frob')
+    def inserted_frob(self, bar, baz):
+        try:
+            return "hello %s" % bar
+        except Exception as e:
+            frob(e)
+            
+    The name of the inserted function/method doesn't matter much,
+    but it will appear in stack traces, so you may want to make it descriptive.
+    
+    You can also use the result as a context object:
+    
+        def frob_with_vitamin_c(bar):
+            return "hello %s" % bar
+        with insert(MyClass, 'frob', frob_with_vitamin_c):
+            MyClass().frob('world')
+    
+    This will automatically undo the patch when the "with" block exits.
+    """
+
+    def wrapper_with_insert(external_patch_function, original_function,
+        *args, **kwargs):
+        """
+        external_patch_function is the supplied patch, which takes
+        original_function as its first argument.
+        """
+        return external_patch_function(*args, **kwargs)
+    
+    if method_name in dir(class_or_instance):
+        raise KeyError("%s.%s already exists, refusing to overwrite it" %
+            class_or_instance, method_name)
+    # ensure that class_or_instance.method_name exists so that 
+    # get_decorator_or_context_object() doesn't throw an error when trying
+    # to curry it.
+    setattr(class_or_instance, method_name, None)
+    
+    return get_decorator_or_context_object(class_or_instance, method_name,
+        wrapper_with_insert, bare_inserted_function)
+
 def breakpoint(*args, **kwargs):
     import pdb; pdb.set_trace()
 
