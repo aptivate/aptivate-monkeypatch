@@ -76,12 +76,6 @@ def get_decorator_or_context_object(class_or_instance, method_name,
     wrapper_function, which is to be decorated.
     """
 
-    # if original_function is a @cached_property, then trying to read it
-    # will result in a call to __get__ which will execute the function
-    # to cache the property, which is not what we want at all! To fix that,
-    # we check for things that look like @cached_property and patch their
-    # 'func' attribute instead
-
     # http://gnosis.cx/publish/programming/metaclass_2.txt
     def get_obj_mro(obj):
         if isinstance(obj, type):
@@ -90,15 +84,27 @@ def get_decorator_or_context_object(class_or_instance, method_name,
             return obj.__class__.mro()
         
     # http://stackoverflow.com/a/3681323/648162
-    def get_dict_attr(obj,attr):
-        for obj in [obj]+get_obj_mro(obj):
-            if attr in obj.__dict__:
-                return obj.__dict__[attr]
-        raise AttributeError
+    def get_dict_attr(obj, attr):
+        for c in [obj] + get_obj_mro(obj):
+            if attr in c.__dict__:
+                return c.__dict__[attr]
+        raise AttributeError("No attribute called %s found in class of %s "
+            "or any superclass" % (attr, obj))
 
     original_function = get_dict_attr(class_or_instance, method_name)
-    if 'func' in original_function.__dict__ and \
-        '__get__' in original_function.__dict__:
+
+    # if original_function is a @cached_property, then trying to read it
+    # will result in a call to __get__ which will execute the function
+    # to cache the property, which is not what we want at all! To fix that,
+    # we check for things that look like @cached_property and patch their
+    # 'func' attribute instead
+
+    original_function_dict = getattr(original_function, '__dict__', None)
+    
+    if (original_function_dict and 
+        'func' in original_function_dict and
+        '__get__' in original_function_dict):
+        
         # looks like a @cached_property, so patch its 'func' instead
         original_function = original_function.func 
     
