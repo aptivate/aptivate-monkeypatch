@@ -100,15 +100,12 @@ def get_decorator_or_context_object(class_or_instance, method_name,
     # we check for things that look like @cached_property and patch their
     # 'func' attribute instead
 
-    original_function_dict = getattr(original_function, '__dict__', None)
-    
-    if (original_function_dict and 
-        'func' in original_function_dict and
-        '__get__' in original_function_dict):
-        
-        # looks like a @cached_property, so patch its 'func' instead
-        original_function = original_function.func 
-    
+    from django.utils.functional import cached_property
+    if isinstance(original_function, cached_property):
+        class_or_instance = original_function
+        original_function = original_function.func
+        method_name = 'func'
+   
     if external_replacement_function is None:
         # The monkeypatch function (not this one) is being used as an
         # unbound decorator. In this case, we don't actually know what
@@ -127,6 +124,16 @@ def get_decorator_or_context_object(class_or_instance, method_name,
             actual_final_replacement = curry(wrapper_function,
                 external_replacement_function, original_function)
             setattr(class_or_instance, method_name, actual_final_replacement)
+
+            # Note: by now, class_or_instance is the original function, not the
+            # class or module that it's a member of.
+            if isinstance(class_or_instance, cached_property):
+                # Rename so that cached_property's assignment to
+                # instance.__dict__[self.func.__name__] does actually replace
+                # the cached_property object with the result of the function
+                # call, and the property is actually cached.
+                actual_final_replacement.__name__ = original_function.__name__
+
             # It's not useful to return the same wrapper, because
             # that would replace the external_replacement_function with
             # a decorated version, which would stop it from being used
