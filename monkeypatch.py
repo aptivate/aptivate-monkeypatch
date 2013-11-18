@@ -105,6 +105,15 @@ def get_decorator_or_context_object(class_or_instance, method_name,
         class_or_instance = original_function
         original_function = original_function.func
         method_name = 'func'
+
+    # If it looks like it was memoized by South, then we can't access the real
+    # original function as it's hidden by a closure, so we just memoize the
+    # replacement instead.
+    memoize_the_replacement = False
+    if hasattr(original_function, '__name__') and \
+        hasattr(original_function, '_invalidate'):
+
+        memoize_the_replacement = True
    
     if external_replacement_function is None:
         # The monkeypatch function (not this one) is being used as an
@@ -123,6 +132,11 @@ def get_decorator_or_context_object(class_or_instance, method_name,
             # Activate the patch now
             actual_final_replacement = curry(wrapper_function,
                 external_replacement_function, original_function)
+
+            if memoize_the_replacement:
+                from south.utils import memoize
+                actual_final_replacement = memoize(actual_final_replacement)
+
             setattr(class_or_instance, method_name, actual_final_replacement)
 
             # Note: by now, class_or_instance is the original function, not the
@@ -148,6 +162,11 @@ def get_decorator_or_context_object(class_or_instance, method_name,
         # The monkeypatch function returns this TemporaryPatcher to its
         # caller, where it's used as a context object, or discarded.
         # import pdb; pdb.set_trace()
+
+        if memoize_the_replacement:
+            from south.utils import memoize
+            external_replacement_function = memoize(external_replacement_function)
+
         return TemporaryPatcher(class_or_instance, method_name,
             curry(wrapper_function, external_replacement_function,
                 original_function))
