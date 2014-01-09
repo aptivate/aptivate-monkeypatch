@@ -167,9 +167,17 @@ def get_decorator_or_context_object(class_or_instance, method_name,
             from south.utils import memoize
             external_replacement_function = memoize(external_replacement_function)
 
-        return TemporaryPatcher(class_or_instance, method_name,
-            curry(wrapper_function, external_replacement_function,
-                original_function))
+        # If the replacement is a callable, then curry it so that it receives
+        # original_function as its first argument.
+        if hasattr(external_replacement_function, '__call__'):
+            return TemporaryPatcher(class_or_instance, method_name,
+                curry(wrapper_function, external_replacement_function,
+                    original_function))
+        else:
+            # Otherwise, it's a plain value, which will never be called and
+            # has no way to use an original function if it bit it in the ass.
+            return TemporaryPatcher(class_or_instance, method_name,
+                external_replacement_function)
 
 def before(target_class_or_module, target_method_name):
     """
